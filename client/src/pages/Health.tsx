@@ -43,140 +43,69 @@ import {
 } from '../types/health';
 import { motion, AnimatePresence, AnimateSharedLayout } from 'framer-motion';
 
+import { HealthService } from '../services/HealthService';
+
 const Health: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, isAuthenticated } = useAuth();
   const [healthProfile, setHealthProfile] = useState<HealthProfile | null>(null);
   const [isFirstTime, setIsFirstTime] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'profile' | 'plans' | 'reports'>('plans');
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [planProgress, setPlanProgress] = useState<{[key: string]: number}>({});
-  const [showLoginReminder, setShowLoginReminder] = useState(true);
-  const [showWaterSchedule, setShowWaterSchedule] = useState(false);
   
-  // Student-specific identifiers
-  const studentId = currentUser?.id ? parseInt(currentUser.id) : null;
-  const studentHealthKey = studentId ? `health_profile_${studentId}` : null;
-  const studentProgressKey = studentId ? `plan_progress_${studentId}` : null;
-  const studentDataKey = studentId ? `health_data_${studentId}` : null;
-  
-  const [formData, setFormData] = useState<HealthFormData & { custom_fitness_goal?: string }>({
-    height: '',
-    weight: '',
-    gender: 'male',
-    blood_type: '',
-    chronic_diseases: '',
-    allergies: '',
-    fitness_goal: 'general_health',
-    target_weight: '',
-    activity_level: 'moderate',
-    dietary_preferences: '',
-    custom_fitness_goal: ''
-  });
-
-  const [errors, setErrors] = useState<Partial<HealthFormData>>({});
-  const [todayData, setTodayData] = useState<HealthData>({
-    health_id: studentId || 0,
-    record_date: new Date(),
-    steps: 0,
-    calories_burned: 0,
-    sleep_hours: 0,
-    water_intake: 0,
-    heart_rate: 0,
-    mood: 'average'
-  });
-
-  // Add particle effect for background
   useEffect(() => {
-    const canvas = document.createElement('canvas');
-    canvas.id = 'particles-canvas';
-    document.body.appendChild(canvas);
-    
-    initParticleEffect('particles-canvas');
-    
+    if (!currentUser) {
+      setIsLoading(false);
+      return;
+    }
+
+    const unsubscribeProfile = HealthService.subscribeToProfile(currentUser.uid, (profile) => {
+      setHealthProfile(profile);
+      setIsFirstTime(!profile);
+      setIsLoading(false);
+    });
+
+    const unsubscribeData = HealthService.subscribeToLatestHealthData(currentUser.uid, (data) => {
+      if (data) setTodayData(data);
+    });
+
     return () => {
-      const canvasElement = document.getElementById('particles-canvas');
-      if (canvasElement) {
-        canvasElement.remove();
-      }
+      unsubscribeProfile();
+      unsubscribeData();
     };
-  }, []);
+  }, [currentUser]);
 
-  // Student-specific data loading
-  useEffect(() => {
-    if (isAuthenticated && currentUser && studentId && studentHealthKey) {
-      // Load student's health profile
-      const hasProfile = localStorage.getItem(studentHealthKey);
-      if (hasProfile) {
-        try {
-          const profile = JSON.parse(hasProfile);
-          // Verify the profile belongs to this student
-          if (profile.student_id === studentId) {
-            setHealthProfile(profile);
-            setIsFirstTime(false);
-          } else {
-            // Data integrity issue - remove invalid data
-            localStorage.removeItem(studentHealthKey);
-            setIsFirstTime(true);
-          }
-        } catch (error) {
-          console.error('Error parsing health profile:', error);
-          localStorage.removeItem(studentHealthKey);
-          setIsFirstTime(true);
-        }
-      } else {
-        setIsFirstTime(true);
-      }
-      
-      // Load student's plan progress
-      if (studentProgressKey) {
-        const savedProgress = localStorage.getItem(studentProgressKey);
-        if (savedProgress) {
-          try {
-            setPlanProgress(JSON.parse(savedProgress));
-          } catch (error) {
-            console.error('Error parsing plan progress:', error);
-            localStorage.removeItem(studentProgressKey);
-          }
-        }
-      }
-      
-      // Load student's daily health data
-      if (studentDataKey) {
-        const savedData = localStorage.getItem(studentDataKey);
-        if (savedData) {
-          try {
-            const data = JSON.parse(savedData);
-            setTodayData({ ...data, health_id: studentId });
-          } catch (error) {
-            console.error('Error parsing health data:', error);
-            localStorage.removeItem(studentDataKey);
-          }
-        }
-      }
-    } else if (!isAuthenticated) {
-      // Clear all data when user logs out
-      setHealthProfile(null);
-      setPlanProgress({});
-      setIsFirstTime(true);
-      setSelectedPlan(null);
-      
-      // Show login reminder for guest users
-      setTimeout(() => {
-        setShowLoginReminder(true);
-      }, 3000);
-    }
-  }, [currentUser, isAuthenticated, studentId, studentHealthKey, studentProgressKey, studentDataKey]);
+  const handleProfileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
 
-  // Student verification helper
-  const verifyStudentAccess = (): boolean => {
-    if (!isAuthenticated || !currentUser || !studentId) {
-      alert('Please login to access health features!');
-      return false;
+    try {
+      const profile: HealthProfile = {
+        student_id: parseInt(currentUser.uid.slice(0, 8), 16), // Mock ID from UID
+        ...formData,
+        height: parseFloat(formData.height),
+        weight: parseFloat(formData.weight),
+        target_weight: parseFloat(formData.target_weight)
+      } as any;
+
+      await HealthService.updateProfile(currentUser.uid, profile);
+      setIsEditing(false);
+      setIsFirstTime(false);
+    } catch (error) {
+      console.error('Error saving profile:', error);
     }
-    return true;
+  };
+
+  const handleDailyDataSubmit = async (data: Partial<HealthData>) => {
+    if (!currentUser) return;
+    await HealthService.addHealthRecord(currentUser.uid, {
+      ...todayData,
+      ...data,
+      record_date: new Date()
+    } as any);
   };
 
   // Health Plans Data (same for all students but progress is individual)

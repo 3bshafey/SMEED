@@ -8,10 +8,7 @@ import { useLanguage } from './contexts/LanguageContext';
 import Home from './pages/Home';
 import Login from './pages/auth/Login';
 import Register from './pages/auth/Register';
-import Verify from './pages/auth/Verify';
 import ForgotPassword from './pages/auth/ForgotPassword';
-import VerifyOTP from './pages/auth/VerifyOTP';
-import ResetPassword from './pages/auth/ResetPassword';
 import Worship from './pages/Worship';
 import Dashboard from './pages/Dashboard';
 import Health from './pages/Health';
@@ -37,10 +34,7 @@ const AppContent = () => {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/verify" element={<Verify />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/verify-otp" element={<VerifyOTP />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/health" element={<Health />} />
         <Route path="/appointments" element={<Appointments />} />
         <Route path="/" element={<Home />} />
@@ -50,6 +44,7 @@ const AppContent = () => {
         <Route path="/savings-goals" element={<SavingsGoals />} />
         <Route path="/plans" element={<Plans />} />
         <Route path="/payment" element={<PaymentPage />} />
+        <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </>
   );

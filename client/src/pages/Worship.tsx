@@ -257,43 +257,30 @@ const LocationSettingsModal: React.FC<LocationSettingsModalProps> = ({
   );
 };
 
+import { WorshipService, WorshipPreference, PrayerRecord } from '../services/WorshipService';
+
 const Worship: React.FC = () => {
   const { currentUser } = useAuth();
   const [hasPreferences, setHasPreferences] = useState(false);
-  const [preferences, setPreferences] = useState<ReligiousPreferences | null>(null);
+  const [preferences, setPreferences] = useState<WorshipPreference | null>(null);
   const [prayerTimes, setPrayerTimes] = useState<PrayerTime[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [customChristianTimes, setCustomChristianTimes] = useState<ChristianPrayerSchedule>({
-    baker: '06:00',
-    elthaletha: '09:00',
-    elsadesa: '12:00',
-    eltas3a: '15:00',
-    el3rob: '17:00',
-    elnom: '19:00',
-    midnight: '00:30'
-  });
-  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
-
+  
   useEffect(() => {
-    // Initialize particle effect
-    const canvas = document.createElement('canvas');
-    canvas.id = 'particles-canvas';
-    document.body.appendChild(canvas);
-    
-    initParticleEffect('particles-canvas');
-    
-    return () => {
-      const canvasElement = document.getElementById('particles-canvas');
-      if (canvasElement) {
-        canvasElement.remove();
-      }
-    };
-  }, []);
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
 
-  useEffect(() => {
-    checkUserPreferences();
+    const unsubscribePrefs = WorshipService.subscribeToPreferences(currentUser.uid, (prefs) => {
+      setPreferences(prefs as any);
+      setHasPreferences(!!prefs);
+      setLoading(false);
+    });
+
+    return () => unsubscribePrefs();
   }, [currentUser]);
 
   useEffect(() => {
@@ -302,48 +289,37 @@ const Worship: React.FC = () => {
     }
   }, [hasPreferences, preferences, selectedDate]);
 
-  // Add real-time clock update
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, []);
-
-  const checkUserPreferences = async () => {
-    if (!currentUser) {
-      setLoading(false);
-      return;
-    }
-
+  const saveReligiousPreferences = async (prefs: any) => {
+    if (!currentUser) return;
     try {
-      // Check if user has religious preferences in localStorage for demo
-      const storedPrefs = localStorage.getItem(`worship_prefs_${currentUser.id}`);
-      if (storedPrefs) {
-        const prefs = JSON.parse(storedPrefs);
-        setPreferences(prefs);
-        setHasPreferences(true);
-      }
-    } catch (error) {
-      console.error('Error checking preferences:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveReligiousPreferences = async (prefs: ReligiousPreferences) => {
-    try {
-      // Save to localStorage for demo (in production, this would go to your database)
-      localStorage.setItem(`worship_prefs_${currentUser?.id}`, JSON.stringify(prefs));
+      await WorshipService.updatePreferences(currentUser.uid, prefs);
       setPreferences(prefs);
       setHasPreferences(true);
     } catch (error) {
       console.error('Error saving preferences:', error);
     }
   };
+
+  const togglePrayerCompletion = async (prayerName: string) => {
+    if (!currentUser) return;
+    const date = selectedDate.toISOString().split('T')[0];
+    const prayer = prayerTimes.find(p => p.name === prayerName);
+    if (prayer) {
+      await WorshipService.togglePrayer(currentUser.uid, prayerName, date, !prayer.completed);
+    }
+  };
+
+  useEffect(() => {
+    if (!currentUser || !hasPreferences) return;
+    const date = selectedDate.toISOString().split('T')[0];
+    const unsubscribePrayers = WorshipService.subscribeToDailyPrayers(currentUser.uid, date, (records) => {
+      setPrayerTimes(prev => prev.map(p => ({
+        ...p,
+        completed: records.some(r => r.prayerName === p.name && r.completed)
+      })));
+    });
+    return () => unsubscribePrayers();
+  }, [currentUser, hasPreferences, selectedDate]);
 
   const loadPrayerTimes = async () => {
     if (!preferences) return;

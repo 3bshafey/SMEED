@@ -1,37 +1,39 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut, 
+  sendPasswordResetEmail,
+  User as FirebaseUser
+} from 'firebase/auth';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import { RegisterFormData } from '../types';
 
 // Base User interface
-interface User {
-  id: string;
+interface UserProfile {
+  uid: string;
   email: string;
   username: string;
   firstName?: string;
   lastName?: string;
   phoneNumber?: string;
   nationalId?: string;
-  birthDate?: Date;
+  birthDate?: string;
   verifiedEmail: boolean;
-  loginAttempts: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-// Extended User interface with additional properties
-interface ExtendedUser extends User {
-  student_id: string;
+  createdAt: any;
+  updatedAt: any;
+  student_id: string; // Mapping uid to student_id for compatibility
 }
 
 interface AuthContextType {
-  currentUser: ExtendedUser | null;
+  currentUser: UserProfile | null;
   loading: boolean;
-  loginAttempts: number;
-  lockedUntil: Date | null;
-  login: (username: string, password: string) => Promise<void>;
-  register: (data: RegisterFormData) => Promise<User>;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<void>;
+  register: (data: RegisterFormData) => Promise<void>;
+  logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
-  verifyEmail: (token: string) => Promise<boolean>;
   isAuthenticated: boolean;
 }
 
@@ -49,155 +51,82 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-const MAX_LOGIN_ATTEMPTS = 5;
-const LOCK_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
-
 export const AuthProvider = ({ children }: AuthProviderProps): JSX.Element => {
-  const [currentUser, setCurrentUser] = useState<ExtendedUser | null>(() => {
-    const savedUser = localStorage.getItem('user');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [loginAttempts, setLoginAttempts] = useState<number>(0);
-  const [lockedUntil, setLockedUntil] = useState<Date | null>(null);
 
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('user', JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem('user');
-    }
-  }, [currentUser]);
-
-  const login = async (username: string, password: string) => {
-    try {
-      const response = await fetch('http://localhost:3000/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to login');
+    const unsubscribe = onAuthStateChanged(auth, async (user: FirebaseUser | null) => {
+      if (user) {
+        try {
+          // Fetch additional profile data from Firestore
+          const docRef = doc(db, "users", user.uid);
+          const docSnap = await getDoc(docRef);
+          
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setCurrentUser({
+              uid: user.uid,
+              email: user.email!,
+              username: data.username,
+              firstName: data.firstName,
+              lastName: data.lastName,
+              phoneNumber: data.phoneNumber,
+              nationalId: data.nationalId,
+              birthDate: data.birthDate,
+              verifiedEmail: user.emailVerified,
+              createdAt: data.createdAt?.toDate?.() || data.createdAt,
+              updatedAt: data.updatedAt?.toDate?.() || data.updatedAt,
+              student_id: user.uid // Use uid as student_id
+            });
+          } else {
+            console.error("User document not found in Firestore");
+            setCurrentUser(null);
+          }
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+          setCurrentUser(null);
+        }
+      } else {
+        setCurrentUser(null);
       }
-
-      const data = await response.json();
-      console.log('Login response:', data); // Debug log
-
-      if (!data.user.student_id) {
-        console.error('No student_id in response:', data);
-        throw new Error('Invalid response from server: missing student_id');
-      }
-
-      const user: ExtendedUser = {
-        id: data.user.id.toString(),
-        student_id: data.user.student_id.toString(),
-        username: data.user.username,
-        email: data.user.email,
-        firstName: data.user.firstName,
-        lastName: data.user.lastName,
-        phoneNumber: data.user.phoneNumber,
-        nationalId: data.user.nationalId,
-        birthDate: data.user.birthDate,
-        verifiedEmail: data.user.verifiedEmail,
-        loginAttempts: data.user.loginAttempts,
-        createdAt: data.user.createdAt,
-        updatedAt: data.user.updatedAt
-      };
-
-      console.log('Setting current user:', user); // Debug log
-      setCurrentUser(user);
-    } catch (error) {
-      console.error('Login error:', error);
-      throw error;
-    }
-  };
-
-  const register = async (data: RegisterFormData): Promise<User> => {
-    try {
-      setLoading(true);
-      
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const user: User = {
-        id: Date.now().toString(),
-        username: data.email.split('@')[0], // Generate username from email
-        email: data.email,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        phoneNumber: data.phoneNumber,
-        nationalId: data.nationalId,
-        birthDate: data.birthDate,
-        verifiedEmail: false,
-        loginAttempts: 0,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      
-      const extendedUser: ExtendedUser = {
-        ...user,
-        student_id: Date.now().toString() // Generate a temporary student ID
-      };
-      
-      setCurrentUser(extendedUser);
-      localStorage.setItem('user', JSON.stringify(extendedUser));
-      
-      return user;
-    } catch (error) {
-      console.error('Registration error:', error);
-      throw new Error('Failed to register. Please try again later.');
-    } finally {
       setLoading(false);
-    }
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email, password);
   };
 
-  const logout = () => {
-    setCurrentUser(null);
+  const register = async (data: RegisterFormData) => {
+    const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
+    const user = userCredential.user;
+
+    // Save profile data to Firestore
+    const userProfile = {
+      username: data.username || data.email.split('@')[0],
+      email: data.email,
+      firstName: data.firstName || '',
+      lastName: data.lastName || '',
+      phoneNumber: data.phoneNumber || '',
+      nationalId: data.nationalId || '',
+      birthDate: data.birthDate ? data.birthDate.toISOString() : '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      student_id: user.uid
+    };
+
+    await setDoc(doc(db, "users", user.uid), userProfile);
   };
 
-  const resetPassword = async (email: string): Promise<void> => {
-    try {
-      setLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // In production, this would send a password reset email
-      console.log(`Password reset email sent to ${email}`);
-    } catch (error) {
-      console.error('Password reset error:', error);
-      throw new Error('Failed to send password reset email.');
-    } finally {
-      setLoading(false);
-    }
+  const logout = async () => {
+    await signOut(auth);
   };
 
-  const verifyEmail = async (token: string): Promise<boolean> => {
-    try {
-      setLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      if (!currentUser) {
-        throw new Error('No user logged in');
-      }
-      
-      const updatedUser = {
-        ...currentUser,
-        verifiedEmail: true,
-        updatedAt: new Date()
-      };
-      
-      setCurrentUser(updatedUser as ExtendedUser);
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-      
-      return true;
-    } catch (error) {
-      console.error('Email verification error:', error);
-      return false;
-    } finally {
-      setLoading(false);
-    }
+  const resetPassword = async (email: string) => {
+    await sendPasswordResetEmail(auth, email);
   };
 
   return (
@@ -205,42 +134,16 @@ export const AuthProvider = ({ children }: AuthProviderProps): JSX.Element => {
       value={{
         currentUser,
         loading,
-        loginAttempts,
-        lockedUntil,
         login,
         register,
         logout,
         resetPassword,
-        verifyEmail,
         isAuthenticated: !!currentUser,
       }}
     >
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
 
 export default AuthContext;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

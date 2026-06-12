@@ -6,12 +6,13 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Header from '../../components/layout/Header';
 import Footer from '../../components/layout/Footer';
-import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import EgyptianFlagImage from '../../assets/egyptian-flag.png';
 import { initParticleEffect } from '../../utils/animations';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Register: React.FC = () => {
+  const { register } = useAuth();
   const [userName, setUserName] = useState('');
   const [nationalId, setNationalId] = useState('');
   const [email, setEmail] = useState('');
@@ -22,7 +23,6 @@ const Register: React.FC = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showFlag, setShowFlag] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState('free');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -31,24 +31,6 @@ const Register: React.FC = () => {
     document.body.appendChild(canvas);
     
     initParticleEffect('particles-canvas');
-
-    // Load selected plan from localStorage
-    const plan = localStorage.getItem('selectedPlan');
-    if (plan) {
-      setSelectedPlan(plan);
-      localStorage.removeItem('selectedPlan'); // Clear it after reading
-    }
-
-    const pendingUser = JSON.parse(localStorage.getItem('pendingUser') || '{}');
-    if (pendingUser.user_name) {
-      setUserName(pendingUser.user_name);
-      setNationalId(pendingUser.national_id);
-      setEmail(pendingUser.email);
-      setPhoneNumber(pendingUser.phone_number);
-      setBirthdate(pendingUser.birthdate);
-      setPassword(pendingUser.password);
-      setConfirmPassword(pendingUser.password);
-    }
 
     return () => {
       const canvasElement = document.getElementById('particles-canvas');
@@ -102,10 +84,6 @@ const Register: React.FC = () => {
     }
   };
 
-  const generateVerificationCode = () => {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -153,70 +131,24 @@ const Register: React.FC = () => {
       setError('');
       setIsLoading(true);
 
-      const checkResponse = await axios.post('http://localhost:3000/check-user', {
-        user_name: userName,
-        national_id: nationalId,
+      await register({
+        username: userName,
         email,
-        phone_number: phoneNumber,
-      });
-
-      if (checkResponse.data.exists) {
-        setError(checkResponse.data.message || 'User already exists with this email, national ID, or phone number.');
-        return;
-      }
-
-      const verificationCode = generateVerificationCode();
-      const codeExpiry = Date.now() + 60 * 1000;
-
-      await axios.post('http://localhost:3000/send-verification-email', {
-        email,
-        verificationCode,
-      });
-
-      localStorage.setItem('pendingUser', JSON.stringify({
-        user_name: userName,
-        national_id: nationalId,
-        email,
-        phone_number: phoneNumber,
-        birthdate,
         password,
-        verificationCode,
-        codeExpiry,
-        selectedPlan,
-      }));
+        firstName: userName, // Using username as first name for now
+        lastName: '',
+        phoneNumber,
+        nationalId,
+        birthDate: new Date(birthdate)
+      });
 
-      navigate('/verify');
+      navigate('/dashboard');
     } catch (err: any) {
-      console.error('Error:', err.response?.data || err.message);
-      if (err.response) {
-        setError(err.response.data?.error || 'An error occurred while checking the data. Please try again.');
-      } else if (err.request) {
-        setError('Unable to connect to the server. Please check your network and try again.');
-      } else {
-        setError('An unexpected error occurred. Please try again.');
-      }
+      console.error('Registration error:', err);
+      setError(err.message || 'Registration failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const getBorderColor = (value: string, validator: (val: string) => boolean, field: string): string => {
-    if (!value) return 'border-blue-500 dark:border-blue-400';
-    if (error) {
-      if (error.includes('Username already exists') && field === 'userName') return 'border-red-500 dark:border-red-400';
-      if (error.includes('National ID already exists') && field === 'nationalId') return 'border-red-500 dark:border-red-400';
-      if (error.includes('Phone number already exists') && field === 'phoneNumber') return 'border-red-500 dark:border-red-400';
-      if (error.includes('Email already exists') && field === 'email') return 'border-red-500 dark:border-red-400';
-      if (error.includes('User already exists') && (field === 'userName' || field === 'nationalId' || field === 'email' || field === 'phoneNumber')) {
-        return 'border-red-500 dark:border-red-400';
-      }
-    }
-    return validator(value) ? 'border-green-500 dark:border-green-400' : 'border-red-500 dark:border-red-400';
-  };
-
-  const getConfirmPasswordBorderColor = () => {
-    if (!confirmPassword) return 'border-blue-500 dark:border-blue-400';
-    return password === confirmPassword ? 'border-green-500 dark:border-green-400' : 'border-red-500 dark:border-red-400';
   };
 
   const renderFloatingShapes = () => {
@@ -246,15 +178,6 @@ const Register: React.FC = () => {
                 <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-purple-600"> SMEED</span>
               </h1>
               
-              {selectedPlan !== 'free' && (
-                <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
-                  <p className="text-sm text-blue-600 dark:text-blue-400">
-                    You selected the <span className="font-semibold">{selectedPlan === 'pro' ? 'Pro Student' : 'University'}</span> plan. 
-                    You can change your plan anytime after registration.
-                  </p>
-                </div>
-              )}
-
               <p className="text-lg text-gray-600 dark:text-gray-300 mb-8 animate-slide-in-up" style={{ animationDelay: '0.1s' }}>
                 Join SMEED and Start your fully student life with all the tools you need in one place.
               </p>
@@ -279,7 +202,6 @@ const Register: React.FC = () => {
                     placeholder="mero22"
                     required
                     helperText="At least 3 characters, letters and numbers only"
-                    borderColor={getBorderColor(userName, validateUserName, 'userName')}
                   />
 
                   <Input
@@ -293,7 +215,6 @@ const Register: React.FC = () => {
                     placeholder="212345678901234"
                     required
                     helperText="Exactly 14 digits, starting with 2 or 3"
-                    borderColor={getBorderColor(nationalId, validateNationalId, 'nationalId')}
                   />
 
                   <Input
@@ -307,7 +228,6 @@ const Register: React.FC = () => {
                     placeholder="your@email.com"
                     required
                     autoComplete="email"
-                    borderColor={getBorderColor(email, validateEmail, 'email')}
                   />
 
                   <Input
@@ -322,7 +242,6 @@ const Register: React.FC = () => {
                     placeholder="01282807407"
                     required
                     helperText="Must start with 010, 011, 012, or 015 and be 11 digits"
-                    borderColor={getBorderColor(phoneNumber, validatePhoneNumber, 'phoneNumber')}
                   />
 
                   <Input
@@ -335,7 +254,6 @@ const Register: React.FC = () => {
                     onChange={(e) => setBirthdate(e.target.value)}
                     required
                     max={new Date().toISOString().split('T')[0]}
-                    borderColor={getBorderColor(birthdate, validateBirthdate, 'birthdate')}
                   />
 
                   <Input
@@ -349,7 +267,6 @@ const Register: React.FC = () => {
                     placeholder="••••••••"
                     required
                     helperText="At least 8 characters with uppercase, lowercase, and number"
-                    borderColor={getBorderColor(password, validatePassword, 'password')}
                   />
 
                   <Input
@@ -363,7 +280,6 @@ const Register: React.FC = () => {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••"
                     required
-                    borderColor={getConfirmPasswordBorderColor()}
                   />
 
                   <div className="flex items-center">
