@@ -6,6 +6,9 @@ SMEED is a modern, all-in-one Student Management Platform designed to empower st
 
 SMEED (Student Management & Empowerment, Evaluation & Development) aims to be the ultimate companion for students, helping them balance their busy lives with ease.
 
+## 🎥 Demo
+Check out the full project video here: [YouTube Link](https://www.youtube.com/watch?v=U6gx4ooznBI)
+
 ## 🛠️ Tech Stack
 
 - **Frontend:** React 18, TypeScript, Vite, Tailwind CSS
